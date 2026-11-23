@@ -1405,6 +1405,7 @@ function closeCommunityBoardPreview(){
   communityPreviewOverlay=null;
   communityBoardPlaceholder=null;
   communityBoard?.classList.remove("board-expanded","board-image-preview");
+  if(communityBoard)communityBoard.style.zoom="";
   document.body.classList.remove("community-board-open");
   const button=$("art-board-fullscreen");
   if(button){button.setAttribute("aria-pressed","false");button.textContent="⛶ تكبير الصورة كاملة";button.setAttribute("aria-label","تكبير الصورة الجماعية كاملة");}
@@ -1438,8 +1439,26 @@ function setCommunityBoardPreview(enabled){
   header.append(heading,close);
   const stage=document.createElement("div");
   stage.className="comic-preview-stage";
+  const zoomControls=document.createElement("div");
+  zoomControls.className="comic-preview-zoom";
+  zoomControls.setAttribute("aria-label","أدوات تكبير لوحة الكوميك");
+  const zoomOut=document.createElement("button");
+  zoomOut.type="button";zoomOut.className="comic-zoom-btn";zoomOut.textContent="−";zoomOut.setAttribute("aria-label","تصغير اللوحة");
+  const zoomValue=document.createElement("span");
+  zoomValue.className="comic-zoom-value";zoomValue.textContent="100%";
+  const zoomIn=document.createElement("button");
+  zoomIn.type="button";zoomIn.className="comic-zoom-btn";zoomIn.textContent="+";zoomIn.setAttribute("aria-label","تكبير اللوحة");
+  const zoomFit=document.createElement("button");
+  zoomFit.type="button";zoomFit.className="comic-zoom-fit";zoomFit.textContent="ملاءمة";zoomFit.setAttribute("aria-label","إظهار اللوحة كاملة");
+  let boardZoom=1;
+  const applyBoardZoom=()=>{communityBoard.style.zoom=String(boardZoom);zoomValue.textContent=`${Math.round(boardZoom*100)}%`;zoomOut.disabled=boardZoom<=1;zoomIn.disabled=boardZoom>=2.5;};
+  zoomOut.addEventListener("click",()=>{boardZoom=Math.max(1,+(boardZoom-.2).toFixed(2));applyBoardZoom();});
+  zoomIn.addEventListener("click",()=>{boardZoom=Math.min(2.5,+(boardZoom+.2).toFixed(2));applyBoardZoom();});
+  zoomFit.addEventListener("click",()=>{boardZoom=1;applyBoardZoom();stage.scrollTo({top:0,left:0,behavior:"smooth"});});
+  zoomControls.append(zoomOut,zoomValue,zoomIn,zoomFit);
   stage.append(communityBoard);
-  communityPreviewOverlay.append(header,stage);
+  communityPreviewOverlay.append(header,zoomControls,stage);
+  applyBoardZoom();
   communityPreviewOverlay.addEventListener("click",event=>{if(event.target===communityPreviewOverlay)closeCommunityBoardPreview();});
   document.body.append(communityPreviewOverlay);
   communityBoard.classList.add("board-expanded","board-image-preview");
