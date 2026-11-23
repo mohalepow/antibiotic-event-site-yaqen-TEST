@@ -1,4 +1,4 @@
-/* إعدادات Supabase في config.js */
+
 const CONFIG = window.APP_CONFIG || {};
 const hasBackend = Boolean(CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY &&
   !CONFIG.SUPABASE_URL.includes("YOUR_") && !CONFIG.SUPABASE_ANON_KEY.includes("YOUR_"));
@@ -14,9 +14,14 @@ let currentMapUrl = null;
 let siteAccessSettings = { locked: false, message: "", unlock_at: null };
 let siteAccessTimer = null;
 let siteAccessRefreshTimer = null;
+let siteAccessChannel = null;
+let siteAccessRefreshBusy = false;
+let siteAccessRefreshQueued = false;
+let siteAccessRequestVersion = 0;
+let siteAccessLastVerifiedAt = 0;
+let siteAccessExpiryHandled = false;
 const ar = n => new Intl.NumberFormat("ar-SA").format(n);
 const toast = message => { $("toast").textContent=message; $("toast").classList.add("show"); setTimeout(()=>$("toast").classList.remove("show"),2600); };
-const escapeText = value => String(value ?? "");
 
 function setMap(url) {
   currentMapUrl = url || null;
@@ -39,12 +44,6 @@ async function loadData() {
   if (settingError) console.warn("Map setting could not be loaded:", settingError);
   booths = boothData || [];
   setMap(settingData?.value || null);
-  const {data: accessData,error:accessError} = await supabaseClient.from("site_settings").select("value").eq("key","event_access").maybeSingle();
-  if(accessError) console.warn("Site access setting could not be loaded; keeping the last verified gate state:",accessError);
-  else {
-    siteAccessSettings = accessData?.value && typeof accessData.value === "object" ? accessData.value : {locked:false,message:"",unlock_at:null};
-    applySiteAccess();
-  }
   renderAll();
   window.dispatchEvent(new CustomEvent("event-booths-loaded"));
 }
@@ -207,7 +206,7 @@ async function loadAdminDashboard() {
     $("dashboard-updated").textContent = `آخر تحديث: ${new Intl.DateTimeFormat("ar-SA", { dateStyle: "medium", timeStyle: "short" }).format(new Date())}`;
   } catch (error) {
     console.error("Admin dashboard:", error);
-    $("dashboard-error").textContent = "تعذر تحميل الإحصائيات. تأكد من تشغيل ملف supabase-upgrade-dashboard.sql ومن دخولك بحساب مدير مفعل.";
+    $("dashboard-error").textContent = "تعذر تحميل الإحصائيات. تأكد من تشغيل ملف supabase-unified-setup.sql ومن دخولك بحساب مدير مضاف إلى event_admins.";
     $("dashboard-error").classList.remove("hidden");
     $("admin-live-state").innerHTML = "<i></i> يحتاج إلى إعداد";
   } finally {
@@ -241,72 +240,215 @@ function startAdminLiveUpdates() {
 
 $("refresh-dashboard")?.addEventListener("click", loadAdminDashboard);
 
+function normalizeSiteAccess(value){
+  if(!value || typeof value !== "object") return {locked:false,message:"",unlock_at:null,updated_at:null};
+  const unlockAt=value.unlock_at && Number.isFinite(new Date(value.unlock_at).getTime()) ? new Date(value.unlock_at).toISOString() : null;
+  return {
+    locked:value.locked === true,
+    message:typeof value.message === "string" ? value.message.slice(0,500) : "",
+    unlock_at:unlockAt,
+    updated_at:typeof value.updated_at === "string" ? value.updated_at : null
+  };
+}
+
+function setAccessConnectionState(state){
+  const nodes=[$("site-lock-connection"),$("site-lock-admin-connection")].filter(Boolean);
+  if(!nodes.length)return;
+  const labels={
+    SUBSCRIBED:"متصل بالتحديث الفوري",
+    CONNECTING:"جارٍ الاتصال بالخادم…",
+    CHANNEL_ERROR:"الاتصال غير مستقر · التحقق الاحتياطي يعمل",
+    TIMED_OUT:"الاتصال متأخر · التحقق الاحتياطي يعمل",
+    CLOSED:"الاتصال متوقف · إعادة المحاولة جارية"
+  };
+  nodes.forEach(node=>{
+    node.textContent=labels[state]||labels.CONNECTING;
+    node.dataset.state=state;
+  });
+}
+
 function applySiteAccess(){
-  const lock=$("site-lock-screen"); if(!lock)return;
-  let locked=Boolean(siteAccessSettings.locked);
+  const lock=$("site-lock-screen");
+  if(!lock)return;
+  siteAccessSettings=normalizeSiteAccess(siteAccessSettings);
+  let locked=siteAccessSettings.locked;
+  let remaining=null;
   if(locked && siteAccessSettings.unlock_at){
-    const remaining=new Date(siteAccessSettings.unlock_at).getTime()-Date.now();
+    remaining=new Date(siteAccessSettings.unlock_at).getTime()-Date.now();
     if(Number.isFinite(remaining) && remaining<=0){
-      siteAccessSettings={...siteAccessSettings,locked:false};
       locked=false;
-    } else if(Number.isFinite(remaining)){
-      const hours=Math.floor(remaining/3600000),minutes=Math.floor((remaining%3600000)/60000),seconds=Math.floor((remaining%60000)/1000);
-      $("site-lock-countdown").textContent=`يفتح الموقع خلال ${ar(hours)}:${ar(minutes).padStart(2,"0")}:${ar(seconds).padStart(2,"0")}`;
-      $("site-lock-countdown").classList.remove("hidden");
     }
   }
-  if(!siteAccessSettings.unlock_at || !locked) $("site-lock-countdown").classList.add("hidden");
+  const countdown=$("site-lock-countdown");
+  if(locked && remaining!==null){
+    const totalSeconds=Math.max(0,Math.floor(remaining/1000));
+    const days=Math.floor(totalSeconds/86400);
+    const hours=Math.floor((totalSeconds%86400)/3600);
+    const minutes=Math.floor((totalSeconds%3600)/60);
+    const seconds=totalSeconds%60;
+    countdown.textContent=days
+      ? `يفتح الموقع خلال ${ar(days)} يوم · ${ar(hours).padStart(2,"0")}:${ar(minutes).padStart(2,"0")}:${ar(seconds).padStart(2,"0")}`
+      : `يفتح الموقع خلال ${ar(hours).padStart(2,"0")}:${ar(minutes).padStart(2,"0")}:${ar(seconds).padStart(2,"0")}`;
+    countdown.classList.remove("hidden");
+  }else countdown.classList.add("hidden");
+
+  $("site-lock-title").textContent=locked?"الموقع متوقف مؤقتًا":"مرحبًا بكم في فعالية مِضادّ";
   $("site-lock-message").textContent=siteAccessSettings.message||"سيتم فتح الموقع قريبًا. ترقّبونا!";
   document.body.classList.remove("site-access-pending");
   document.body.classList.toggle("site-is-locked",locked);
   lock.classList.toggle("hidden",!locked);
+
   for(const child of document.body.children){
-    if(child===lock || child.id==="admin-modal" || child.tagName==="SCRIPT") continue;
+    if(child===lock || child.id==="admin-modal" || child.tagName==="SCRIPT")continue;
     child.inert=locked;
-    if(locked) child.setAttribute("aria-hidden","true");
+    if(locked)child.setAttribute("aria-hidden","true");
     else child.removeAttribute("aria-hidden");
   }
-  if(locked){
-    document.documentElement.style.overflow="hidden";
-    document.body.style.overflow="hidden";
-    if(!$("admin-modal").classList.contains("hidden")) $("admin-modal").style.zIndex="2147483002";
-  } else {
-    document.documentElement.style.overflow="";
-    document.body.style.overflow="";
-    $("admin-modal").style.zIndex="";
-  }
+  document.documentElement.style.overflow=locked?"hidden":"";
+  document.body.style.overflow=locked?"hidden":"";
+  document.documentElement.style.overscrollBehavior=locked?"none":"";
+  document.body.style.overscrollBehavior=locked?"none":"";
+  const adminModal=$("admin-modal");
+  if(adminModal)adminModal.style.zIndex=locked?"2147483002":"";
+
   if(siteAccessTimer)clearTimeout(siteAccessTimer);
-  if(locked && siteAccessSettings.unlock_at)siteAccessTimer=setTimeout(()=>{refreshSiteAccess();},Math.max(1000,new Date(siteAccessSettings.unlock_at).getTime()-Date.now()));
+  if(locked && siteAccessSettings.unlock_at){
+    siteAccessTimer=setTimeout(()=>{
+      applySiteAccess();
+      refreshSiteAccess();
+    },Math.max(250,remaining+50));
+  }
 }
+
 async function refreshSiteAccess(){
-  if(!supabaseClient)return;
-  const {data,error}=await supabaseClient.from("site_settings").select("value").eq("key","event_access").maybeSingle();
-  if(error){console.warn("Site access refresh failed:",error);return;}
-  siteAccessSettings=data?.value&&typeof data.value==="object"?data.value:{locked:false,message:"",unlock_at:null};
-  applySiteAccess();
+  if(!supabaseClient)return false;
+  if(siteAccessRefreshBusy){siteAccessRefreshQueued=true;return false;}
+  siteAccessRefreshBusy=true;
+  const requestVersion=++siteAccessRequestVersion;
+  let succeeded=false;
+  try{
+    const {data,error}=await supabaseClient.from("site_settings").select("value").eq("key","event_access").maybeSingle();
+    if(error)throw error;
+    if(requestVersion!==siteAccessRequestVersion)return false;
+    siteAccessSettings=normalizeSiteAccess(data?.value);
+    siteAccessLastVerifiedAt=Date.now();
+    siteAccessExpiryHandled=false;
+    applySiteAccess();
+    succeeded=true;
+  }catch(error){
+    console.error("Site access verification failed:",error);
+    setAccessConnectionState("CHANNEL_ERROR");
+    if(!siteAccessLastVerifiedAt || Date.now()-siteAccessLastVerifiedAt>12000){
+      document.body.classList.add("site-access-pending","site-is-locked");
+      $("site-lock-screen")?.classList.remove("hidden");
+      $("site-lock-title").textContent="تعذر التحقق من إتاحة الموقع";
+      $("site-lock-message").textContent="الموقع مغلق مؤقتًا حتى نتمكن من التحقق من حالة الإتاحة. تحقق من الاتصال ثم أعد المحاولة.";
+    }
+  }finally{
+    siteAccessRefreshBusy=false;
+    if(siteAccessRefreshQueued){
+      siteAccessRefreshQueued=false;
+      queueMicrotask(()=>refreshSiteAccess());
+    }
+  }
+  return succeeded;
 }
+
+function startSiteAccessRealtime(){
+  if(!supabaseClient)return;
+  if(siteAccessChannel)supabaseClient.removeChannel(siteAccessChannel);
+  setAccessConnectionState("CONNECTING");
+  siteAccessChannel=supabaseClient.channel("site-access-control-live-v2")
+    .on("postgres_changes",{event:"*",schema:"public",table:"site_settings",filter:"key=eq.event_access"},payload=>{
+      const next=payload.eventType==="DELETE"?normalizeSiteAccess(null):normalizeSiteAccess(payload.new?.value);
+      siteAccessRequestVersion++;
+      siteAccessSettings=next;
+      siteAccessLastVerifiedAt=Date.now();
+      applySiteAccess();
+      const adminMessage=$("site-lock-admin-status");
+      if(adminMessage && !$("admin-view").classList.contains("hidden")){
+        $("site-lock-message-input").value=next.message;
+        $("site-lock-unlock-at").value=next.unlock_at?new Date(new Date(next.unlock_at).getTime()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):"";
+      }
+    })
+    .subscribe(status=>{
+      setAccessConnectionState(status);
+      if(status==="SUBSCRIBED")refreshSiteAccess();
+      else if(status==="CHANNEL_ERROR"||status==="TIMED_OUT"||status==="CLOSED")refreshSiteAccess();
+    });
+}
+
 async function saveSiteAccess(locked){
-  const status=$("site-lock-admin-status"),button=$("site-lock-enable");
-  if(!supabaseClient){status.textContent="تعذر الاتصال بقاعدة البيانات.";return;}
+  const status=$("site-lock-admin-status");
+  const enableButton=$("site-lock-enable"),disableButton=$("site-lock-disable");
+  if(!supabaseClient){status.textContent="تعذر الاتصال بقاعدة البيانات. تحقق من إعدادات Supabase.";return;}
+  const {data:sessionData,error:sessionError}=await supabaseClient.auth.getSession();
+  if(sessionError||!sessionData?.session){status.textContent="انتهت جلسة الإدارة. سجّل الدخول مجددًا ثم حاول.";return;}
   const message=$("site-lock-message-input").value.trim();
   const rawUnlock=$("site-lock-unlock-at").value;
-  const unlockAt=locked&&rawUnlock?new Date(rawUnlock).toISOString():null;
+  let unlockAt=null;
+  if(locked && rawUnlock){
+    const parsed=new Date(rawUnlock);
+    if(!Number.isFinite(parsed.getTime())){status.textContent="وقت الفتح غير صالح.";return;}
+    unlockAt=parsed.toISOString();
+  }
   if(locked && !message){status.textContent="اكتب الرسالة التي ستظهر للزوار أولًا.";$("site-lock-message-input").focus();return;}
   if(locked && unlockAt && new Date(unlockAt).getTime()<=Date.now()){status.textContent="اختر وقتًا مستقبليًا لفتح الموقع.";return;}
-  button.disabled=true;status.textContent="جارٍ حفظ الإعدادات...";
-  const value={locked,message:message||"سيتم فتح الموقع قريبًا. ترقّبونا!",unlock_at:unlockAt,updated_at:new Date().toISOString()};
-  const {error}=await supabaseClient.from("site_settings").upsert({key:"event_access",value},{onConflict:"key"});
-  button.disabled=false;
-  if(error){console.error(error);status.textContent="تعذر حفظ الإعدادات. شغّل ملف SQL المرفق ثم حاول مجددًا.";return;}
-  siteAccessSettings=value;applySiteAccess();status.textContent=locked?"تم إيقاف دخول الزوار وحفظ الرسالة.":"تم فتح الموقع للزوار الآن.";
-  toast(locked?"تم إيقاف الموقع مؤقتًا":"تم فتح الموقع");
+  enableButton.disabled=true;disableButton.disabled=true;status.textContent="جارٍ حفظ الحالة والتحقق من وصولها إلى الخادم…";
+  const value={locked:Boolean(locked),message:message||"سيتم فتح الموقع قريبًا. ترقّبونا!",unlock_at:unlockAt,updated_at:new Date().toISOString()};
+  try{
+    const {error:writeError}=await supabaseClient
+      .from("site_settings")
+      .upsert({key:"event_access",value},{onConflict:"key"});
+    if(writeError)throw writeError;
+    const {data:verifyRow,error:verifyError}=await supabaseClient
+      .from("site_settings")
+      .select("key,value")
+      .eq("key","event_access")
+      .maybeSingle();
+    if(verifyError)throw verifyError;
+    if(!verifyRow || verifyRow.key!=="event_access"){
+      throw new Error("نجح طلب الكتابة لكن لم يُعثر على سجل event_access عند إعادة القراءة. تحقق من المشروع والجدول وسياسات SELECT.");
+    }
+
+    let savedValue=verifyRow.value;
+    if(typeof savedValue==="string"){
+      try{savedValue=JSON.parse(savedValue);}catch{throw new Error("قيمة event_access المخزنة ليست JSON صالحًا.");}
+    }
+    if(!savedValue || typeof savedValue!=="object"){
+      throw new Error("سجل event_access موجود لكن محتوى value غير صالح.");
+    }
+    const savedUnlock=savedValue.unlock_at?new Date(savedValue.unlock_at).getTime():null;
+    const expectedUnlock=unlockAt?new Date(unlockAt).getTime():null;
+    const matches=Boolean(savedValue.locked)===value.locked
+      && String(savedValue.message??"")===value.message
+      && savedUnlock===expectedUnlock;
+    if(!matches){
+      console.error("Site access read-back mismatch:",{expected:value,actual:savedValue,key:verifyRow.key});
+      throw new Error("تمت الكتابة لكن القيم المقروءة لا تطابق الإعدادات المطلوبة. قد توجد عملية أخرى تعدّل الإعداد بالتزامن.");
+    }
+
+    siteAccessRequestVersion++;
+    siteAccessSettings=normalizeSiteAccess(savedValue);
+    siteAccessLastVerifiedAt=Date.now();
+    applySiteAccess();
+    status.textContent=locked?"تم إيقاف دخول الزوار والتحقق من حفظ الحالة بنجاح. ستصل التغييرات للأجهزة المتصلة فورًا.":"تم فتح الموقع والتحقق من حفظ الحالة بنجاح. ستصل التغييرات للأجهزة المتصلة فورًا.";
+    toast(locked?"تم إيقاف الموقع":"تم فتح الموقع");
+    refreshSiteAccess();
+  }catch(error){
+    console.error("Could not save site access:",error);
+    const detail=String(error?.message||error?.details||error?.hint||"خطأ غير معروف");
+    const code=error?.code?` [${error.code}]`:"";
+    console.error("Supabase site access save diagnostics:",{code:error?.code,message:error?.message,details:error?.details,hint:error?.hint,status:error?.status});
+    status.textContent=`فشل الحفظ${code}: ${detail}`;
+  }finally{
+    enableButton.disabled=false;disableButton.disabled=false;
+  }
 }
+
 $("site-lock-enable")?.addEventListener("click",()=>saveSiteAccess(true));
 $("site-lock-disable")?.addEventListener("click",()=>saveSiteAccess(false));
-$("site-lock-admin")?.addEventListener("click",()=>$("admin-open").click());
-
-
-// Enforce the visitor gate at the document boundary, including pointer and touch input.
+$("site-lock-admin")?.addEventListener("click",openModal);
 function isAllowedDuringLock(target){
   const lock=$("site-lock-screen"),admin=$("admin-modal");
   return Boolean((lock&&lock.contains(target))||(admin&&!admin.classList.contains("hidden")&&admin.contains(target)));
@@ -316,32 +458,46 @@ function blockLockedInteraction(event){
   if(isAllowedDuringLock(event.target))return;
   event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();
 }
-["click","dblclick","auxclick","pointerdown","pointerup","mousedown","mouseup","touchstart","touchend","submit","change","input","contextmenu","dragstart","drop","wheel"].forEach(type=>document.addEventListener(type,blockLockedInteraction,{capture:true,passive:false}));
-document.addEventListener("keydown",event=>{
-  if(!document.body.classList.contains("site-is-locked")&&!document.body.classList.contains("site-access-pending"))return;
-  if(isAllowedDuringLock(event.target)){
-    if(event.key==="Tab" && $("admin-modal")&&!$("admin-modal").classList.contains("hidden"))return;
-    if(event.key==="Tab"){
-      const focusables=[...$("site-lock-screen").querySelectorAll('button,a,input,select,textarea,[tabindex]:not([tabindex="-1"])')].filter(el=>!el.disabled);
-      if(!focusables.length){event.preventDefault();return;}
-      const first=focusables[0],last=focusables[focusables.length-1];
-      if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}
-      else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
-    }
-    return;
-  }
-  event.preventDefault();event.stopPropagation();event.stopImmediatePropagation();
-},true);
+["click","dblclick","auxclick","pointerdown","pointerup","mousedown","mouseup","touchstart","touchend","touchmove","submit","change","input","beforeinput","keydown","keyup","contextmenu","dragstart","dragover","drop","wheel"].forEach(type=>document.addEventListener(type,blockLockedInteraction,{capture:true,passive:false}));
 document.addEventListener("focusin",event=>{
   if((document.body.classList.contains("site-is-locked")||document.body.classList.contains("site-access-pending"))&&!isAllowedDuringLock(event.target)){
-    event.stopPropagation();$("site-lock-admin")?.focus();
+    event.stopPropagation();
+    const target=$("site-lock-admin");
+    if(target && document.activeElement!==target)target.focus({preventScroll:true});
   }
 },true);
+document.addEventListener("keydown",event=>{
+  if(event.key!=="Tab" || (!document.body.classList.contains("site-is-locked")&&!document.body.classList.contains("site-access-pending")))return;
+  const admin=$("admin-modal");
+  const scope=admin&&!admin.classList.contains("hidden")?admin:$("site-lock-screen");
+  const focusables=[...scope.querySelectorAll('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+    .filter(element=>!element.hidden && element.getAttribute("aria-hidden")!=="true");
+  if(!focusables.length){event.preventDefault();return;}
+  const first=focusables[0],last=focusables[focusables.length-1];
+  if(event.shiftKey && (document.activeElement===first || !scope.contains(document.activeElement))){event.preventDefault();last.focus();}
+  else if(!event.shiftKey && (document.activeElement===last || !scope.contains(document.activeElement))){event.preventDefault();first.focus();}
+},true);
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="visible")refreshSiteAccess();
+});
+window.addEventListener("online",()=>refreshSiteAccess());
+window.addEventListener("pageshow",()=>refreshSiteAccess());
 
-function showAdmin(session) {
-  $("login-view").classList.toggle("hidden",Boolean(session));
-  $("admin-view").classList.toggle("hidden",!session);
-  if(session){
+
+async function showAdmin(session) {
+  let isAdmin = false;
+  if (session && supabaseClient) {
+    const { data, error } = await supabaseClient.rpc("is_event_admin");
+    isAdmin = !error && data === true;
+  }
+  $("login-view").classList.toggle("hidden", isAdmin);
+  $("admin-view").classList.toggle("hidden", !isAdmin);
+  if (session && !isAdmin) {
+    $("login-error").textContent = "هذا الحساب غير مخوّل لإدارة الفعالية. أضف حسابه إلى جدول event_admins من Supabase.";
+    stopAdminLiveUpdates();
+    return;
+  }
+  if(isAdmin){
     $("admin-email").textContent=session.user.email||"المدير";
     $("site-lock-message-input").value=siteAccessSettings.message||"";
     $("site-lock-unlock-at").value=siteAccessSettings.unlock_at?new Date(new Date(siteAccessSettings.unlock_at).getTime()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16):"";
@@ -513,21 +669,32 @@ async function start(){
     $("login-error").textContent="اربط المشروع بـ Supabase لإتاحة إدارة البوثات وحفظها للزوار.";
     $("site-lock-title").textContent="تعذر التحقق من حالة الموقع";
     $("site-lock-message").textContent="تعذر الاتصال بالخادم. أعد تحميل الصفحة أو تواصل مع فريق التنظيم.";
-    document.body.classList.remove("site-access-pending");
+    document.body.classList.add("site-access-pending","site-is-locked");
+    $("site-lock-screen")?.classList.remove("hidden");
+    setAccessConnectionState("CHANNEL_ERROR");
     booths=[];renderAll();return;
   }
-  // Resolve the public gate before loading any event content or tracking calls.
   await refreshSiteAccess();
+  startSiteAccessRealtime();
   await recordEventVisit();
   await loadData();await checkSession();
   if(siteAccessRefreshTimer)clearInterval(siteAccessRefreshTimer);
-  siteAccessRefreshTimer=setInterval(refreshSiteAccess,15000);
-  setInterval(()=>{if(siteAccessSettings.locked&&siteAccessSettings.unlock_at)applySiteAccess();},1000);
+  siteAccessRefreshTimer=setInterval(()=>refreshSiteAccess(),3000);
+  setInterval(()=>{
+    if(siteAccessSettings.locked&&siteAccessSettings.unlock_at)applySiteAccess();
+    const scheduledUnlockPassed=siteAccessSettings.locked&&siteAccessSettings.unlock_at&&new Date(siteAccessSettings.unlock_at).getTime()<=Date.now();
+    if(siteAccessLastVerifiedAt && Date.now()-siteAccessLastVerifiedAt>12000 && !scheduledUnlockPassed){
+      document.body.classList.add("site-access-pending","site-is-locked");
+      $("site-lock-screen")?.classList.remove("hidden");
+      $("site-lock-title").textContent="بانتظار التحقق من الاتصال";
+      $("site-lock-message").textContent="توقف الاتصال بالخادم مؤقتًا. سنعيد فتح الموقع تلقائيًا فور التأكد من حالة الإتاحة.";
+    }
+  },3000);
 }
 start();
 
 
-/* لعبة رحلة المضاد الحيوي ولوحة المتصدرين */
+
 (()=>{
  const canvas=$("game-canvas"); if(!canvas)return;
  const ctx=canvas.getContext("2d");
@@ -576,7 +743,7 @@ start();
      osc.type=type;osc.frequency.setValueAtTime(freq,now);if(slide)osc.frequency.exponentialRampToValueAtTime(Math.max(40,freq+slide),now+duration);
      gain.gain.setValueAtTime(volume,now);gain.gain.exponentialRampToValueAtTime(.001,now+duration);
      osc.connect(gain);gain.connect(audioContext.destination);osc.start(now);osc.stop(now+duration);
-   }catch(e){/* Optional audio depends on browser support. */}
+   }catch(e){}
  }
  function burst(x,y,color="#E8FAFB",count=10){
    for(let i=0;i<count;i++){const a=Math.random()*Math.PI*2,sp=1+Math.random()*3;particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:24+Math.random()*12,max:36,size:1.5+Math.random()*2,color});}
@@ -678,17 +845,7 @@ start();
  $("game-stage").addEventListener("pointerdown",e=>{if(e.target.closest(".game-overlay"))return;e.preventDefault();flap();});
  window.addEventListener("keydown",e=>{if((e.code==="Space"||e.code==="ArrowUp")&&$("game").getBoundingClientRect().top<window.innerHeight&&$("game").getBoundingClientRect().bottom>0){e.preventDefault();if(!running&&ended)return;flap();}});
  window.addEventListener("resize",resize);resize();
-
- // Participant profile, quiz, unified leaderboard, and achievement badges.
  const PLAYER_NAME_KEY="antibiotics-event-player-name";
- const BADGES=[
-  {id:"first_activity",icon:"🌱",title:"بداية الرحلة",description:"سجّل أول نتيجة في أحد أنشطة الفعالية."},
-  {id:"quiz_starter",icon:"📚",title:"محب المعرفة",description:"أكمل أول اختبار معرفي."},
-  {id:"perfect_quiz",icon:"🧠",title:"خبير المضادات",description:"أجب عن أسئلة اختبار واحد إجابة صحيحة بالكامل."},
-  {id:"game_veteran",icon:"🎮",title:"عاشق التحدي",description:"سجّل نتائج ٣ محاولات في اللعبة."},
-  {id:"fifty_points",icon:"🏅",title:"جامع النقاط",description:"اجمع ٥٠ نقطة أو أكثر من جميع الأنشطة."},
-  {id:"all_rounder",icon:"🏆",title:"بطل الفعالية",description:"سجّل نتيجة في اللعبة وأكمل اختبارًا معرفيًا."}
- ];
  const QUIZ=[
   {q:"متى يمكن أن تكون المضادات الحيوية مفيدة؟",a:["لعلاج نزلات البرد والإنفلونزا","لعلاج بعض العدوى البكتيرية عندما يقرر المختص الحاجة إليها","لعلاج جميع أنواع الألم","للوقاية من كل أنواع العدوى"],why:"المضادات الحيوية تعالج بعض العدوى التي تسببها البكتيريا، ويحدد المختص متى تكون مناسبة."},
   {q:"ما الذي يكتسب القدرة على مقاومة المضاد الحيوي؟",a:["جسم الإنسان","جهاز المناعة","البكتيريا","الدواء نفسه"],why:"المقاومة تحدث عندما تطوّر البكتيريا القدرة على التصدي للأدوية المصممة للقضاء عليها."},
@@ -704,7 +861,6 @@ try {
         localStorage.getItem("profile-name-locked") ||
         "";
 } catch (e) {
-    // Storage may be disabled.
 }
 
 const normalizeName = value =>
@@ -735,7 +891,6 @@ function rememberPlayerName(name) {
         localStorage.setItem(PLAYER_NAME_KEY, savedPlayerName);
         localStorage.setItem("profile-name-locked", savedPlayerName);
     } catch (e) {
-        // Name remains available for this page session.
     }
 }
 
@@ -755,12 +910,7 @@ function showIdentityGate() {
         document.body.classList.remove("identity-lock");
     }
 }
-
-
-// اعتماد الاسم من نافذة الترحيب
 $("identity-save")?.addEventListener("click", async () => {
-
-    // منع تغيير الاسم بعد اعتماده
     if (isFullName(savedPlayerName)) {
         showIdentityGate();
         return;
@@ -794,29 +944,21 @@ $("identity-save")?.addEventListener("click", async () => {
 
     showIdentityGate();
 
-    await loadPlayerDashboard();
+    await loadVisitedBoothCards();
 
     if (pendingQrBooth) {
         $("booth-checkin-player").value = name;
         $("booth-checkin-modal")?.classList.remove("hidden");
     }
 });
-
-
-// اعتماد الاسم عند الضغط على Enter
 $("identity-name")?.addEventListener("keydown", e => {
     if (e.key === "Enter") {
         $("identity-save")?.click();
     }
 });
-
-
-// التحقق من الاسم المحفوظ
 if (savedPlayerName && !isFullName(savedPlayerName)) {
     savedPlayerName = "";
 }
-
-// تشغيل نافذة التسجيل عند أول زيارة
 showIdentityGate();
  function renderQuiz(){
    const root=$("quiz-questions");if(!root)return;root.innerHTML="";
@@ -833,51 +975,17 @@ showIdentityGate();
      card.append(legend,options);root.append(card);
    });
  }
- async function loadPlayerDashboard(){
-   const root=$("achievement-grid");if(!root)return;
+ async function loadVisitedBoothCards(){
    const name=getPlayerName();
-   if(!name){root.innerHTML='<p class="leader-empty">أدخل اسم المشاركة لعرض إنجازاتك ومتابعة مجموع نقاطك.</p>';$("stat-total").textContent=ar(0);$("stat-games").textContent=ar(0);$("stat-quizzes").textContent=ar(0);return;}
-   if(!supabaseClient){root.innerHTML='<p class="leader-empty">اربط Supabase ثم نفّذ ملف تحديث قاعدة البيانات لتفعيل حفظ الإنجازات.</p>';return;}
-   const key=name.toLocaleLowerCase();
-   const [statsResult,badgesResult,boothVisitsResult]=await Promise.all([
-     supabaseClient.from("event_leaderboard").select("total_score,game_points,quiz_points,games_played,quizzes_completed,perfect_quizzes").eq("player_key",key).maybeSingle(),
-     supabaseClient.from("player_achievements").select("badge_id,earned_at").eq("player_key",key),
-     supabaseClient.rpc("get_visited_booths",{p_player_name:name})
-   ]);
-   if(statsResult.error||badgesResult.error||boothVisitsResult.error){console.error(statsResult.error||badgesResult.error||boothVisitsResult.error);root.innerHTML='<p class="leader-empty">تعذر تحميل الإنجازات. تأكد من تشغيل ملفات SQL المطلوبة.</p>';return;}
-   const stats=statsResult.data||{total_score:0,game_points:0,quiz_points:0,games_played:0,quizzes_completed:0,perfect_quizzes:0};
-   $("stat-total").textContent=ar(stats.total_score||0);$("stat-games").textContent=ar(stats.games_played||0);$("stat-quizzes").textContent=ar(stats.quizzes_completed||0);
-   const earned=new Map((badgesResult.data||[]).map(b=>[b.badge_id,b.earned_at]));root.innerHTML="";
-   const boothVisits=new Map((boothVisitsResult.data||[]).map(item=>[String(item.booth_id),item.visited_at]));
-   (boothVisitsResult.data||[]).forEach(item => {
-     const visitedBooth = booths.find(booth => String(booth.id) === String(item.booth_id));
-     if (visitedBooth) window.dispatchEvent(new CustomEvent("comic:booth-card", { detail: { boothId: String(visitedBooth.id), boothName: visitedBooth.name } }));
-   });
-   const allBadges=[...BADGES,...booths.map(booth=>({
-     id:`booth:${booth.id}`,icon:"📍",title:booth.name,
-     description:`زر بوث «${booth.name}» وامسح رمز QR الخاص به لفتح هذا الإنجاز.`,
-     earnedAt:boothVisits.get(String(booth.id))||null
-   }))];
-   BADGES.forEach(badge=>{
-     const earnedAt=earned.get(badge.id);const card=document.createElement("article");card.className=`achievement-badge${earnedAt?" earned":" locked"}`;
-     const icon=document.createElement("span");icon.className="badge-icon";icon.textContent=badge.icon;
-     const title=document.createElement("b");title.textContent=badge.title;
-     const desc=document.createElement("p");desc.textContent=badge.description;
-     const status=document.createElement("small");status.className="badge-status";
-     if(earnedAt){status.textContent="مكتسبة · "+new Intl.DateTimeFormat("ar-SA",{dateStyle:"medium"}).format(new Date(earnedAt));}
-     else status.textContent="🔒 لم تُفتح بعد";
-     card.append(icon,title,desc,status);root.append(card);
-   });
-   allBadges.filter(badge=>badge.id.startsWith("booth:")).forEach(badge=>{
-     const card=document.createElement("article");card.className=`achievement-badge${badge.earnedAt?" earned":" locked"}`;
-     const icon=document.createElement("span");icon.className="badge-icon";icon.textContent=badge.icon;
-     const title=document.createElement("b");title.textContent=badge.title;
-     const desc=document.createElement("p");desc.textContent=badge.description;
-     const status=document.createElement("small");status.className="badge-status";
-     status.textContent=badge.earnedAt?"تمت الزيارة · "+new Intl.DateTimeFormat("ar-SA",{dateStyle:"medium"}).format(new Date(badge.earnedAt)):"🔒 لم تتم الزيارة بعد";
-     card.append(icon,title,desc,status);root.append(card);
+   if(!name||!supabaseClient)return;
+   const {data,error}=await supabaseClient.rpc("get_visited_booths",{p_player_name:name});
+   if(error){console.error("Visited booths:",error);return;}
+   (data||[]).forEach(item=>{
+     const visitedBooth=booths.find(booth=>String(booth.id)===String(item.booth_id));
+     if(visitedBooth)window.dispatchEvent(new CustomEvent("comic:booth-card",{detail:{boothId:String(visitedBooth.id),boothName:visitedBooth.name}}));
    });
  }
+
  let pendingQrBooth = null;
  async function openBoothCheckin(){
    const boothId=new URLSearchParams(window.location.search).get("booth");
@@ -901,15 +1009,14 @@ showIdentityGate();
    const button=$("booth-checkin-submit");button.disabled=true;$("booth-checkin-status").textContent="جارٍ تسجيل زيارتك...";
    const {data,error}=await supabaseClient.rpc("record_booth_visit",{p_booth_id:String(pendingQrBooth.id),p_player_name:name});
    button.disabled=false;
-   if(error){console.error("Booth visit:",error);$("booth-checkin-status").textContent="تعذر تسجيل الزيارة. نفّذ ملف supabase-upgrade-booth-visits.sql أولًا.";return;}
+   if(error){console.error("Booth visit:",error);$("booth-checkin-status").textContent="تعذر تسجيل الزيارة. تحقق من تشغيل ملف supabase-unified-setup.sql أولًا.";return;}
    rememberPlayerName(name);
-   $("booth-checkin-status").textContent=data?.already_visited?"هذه الزيارة مسجلة مسبقًا، وشارة البوث موجودة في إنجازاتك.":"تم تسجيل زيارتك بنجاح! أُضيف إنجاز هذا البوث إلى ملفك.";
+   $("booth-checkin-status").textContent=data?.already_visited?"هذه الزيارة مسجلة مسبقًا.":"تم تسجيل زيارتك بنجاح.";
    $("booth-checkin-submit").textContent=data?.already_visited?"تم تسجيل الزيارة":"تمت الزيارة ✓";
-   await loadPlayerDashboard();
+   await loadVisitedBoothCards();
    window.dispatchEvent(new CustomEvent("comic:booth-card",{detail:{boothId:String(pendingQrBooth.id),boothName:pendingQrBooth.name}}));
    if (!data?.already_visited) window.dispatchEvent(new CustomEvent("comic:booth-visited",{detail:{boothId:String(pendingQrBooth.id),boothName:pendingQrBooth.name}}));
  });
- $("save-profile")?.addEventListener("click",()=>showIdentityGate());
  renderQuiz();
  $("quiz-submit")?.addEventListener("click",async()=>{
    const name=getPlayerName();
@@ -920,7 +1027,7 @@ showIdentityGate();
    const button=$("quiz-submit");button.disabled=true;$("quiz-status").textContent="جارٍ تصحيح إجاباتك وتسجيل النقاط...";
    const {data,error}=await supabaseClient.rpc("submit_quiz_score",{p_name:name,p_answers:answers});
    button.disabled=false;
-   if(error){console.error(error);$("quiz-status").textContent="تعذر تسجيل نتيجتك. نفّذ ملف supabase-upgrade-achievements.sql أولًا.";return;}
+   if(error){console.error(error);$("quiz-status").textContent="تعذر تسجيل نتيجتك. تحقق من تشغيل ملف supabase-unified-setup.sql أولًا.";return;}
    rememberPlayerName(name);
    const correct=Number(data?.correct_count||0),points=Number(data?.score||0);
    $("quiz-result-title").textContent=correct===5?"ممتاز! إجابات كاملة 🎉":"أحسنت، استمر في التعلم!";
@@ -936,7 +1043,7 @@ showIdentityGate();
      item.append(title,explanation);review.append(item);
    });
    review.classList.remove("hidden");
-   await Promise.all([loadLeaders(),loadPlayerDashboard()]);
+   await loadLeaders();
    window.dispatchEvent(new CustomEvent("comic:quiz-completed",{detail:{points}}));
  });
  $("quiz-reset")?.addEventListener("click",()=>{
@@ -978,7 +1085,7 @@ showIdentityGate();
    submitPending=false;
    if(error){
      console.error(error);$("submit-score").disabled=false;
-     $("score-status").textContent="تعذر تسجيل النتيجة. شغّل ملف supabase-upgrade-score-once.sql في Supabase ثم حاول مجددًا.";
+     $("score-status").textContent="تعذر تسجيل النتيجة. تحقق من تشغيل ملف supabase-unified-setup.sql ثم حاول مجددًا.";
      return;
    }
    if(data?.already_submitted){
@@ -990,12 +1097,11 @@ showIdentityGate();
      $("score-status").textContent="تم تسجيل نتيجة هذه الجولة بنجاح! لا يمكن تكرار إضافتها.";
    }
    $("submit-score").disabled=true;
-   await Promise.all([loadLeaders(),loadPlayerDashboard()]);
+   await loadLeaders();
  });
  loadLeaders();
- loadPlayerDashboard();
-
-// Comic identity, sound effects, and local discovery challenge.
+ loadVisitedBoothCards();
+ window.addEventListener("event-booths-loaded", loadVisitedBoothCards);
 (() => {
 
   let soundEnabled = localStorage.getItem("comic-sound") !== "off";
@@ -1025,7 +1131,7 @@ showIdentityGate();
       gain.gain.exponentialRampToValueAtTime(.12, now + .012);
       gain.gain.exponentialRampToValueAtTime(.0001, now + duration);
       oscillator.start(now); oscillator.stop(now + duration + .02);
-    } catch (error) { /* Audio is an enhancement; never interrupt the experience. */ }
+    } catch (error) {  }
   }
   const gameSoundButton = document.getElementById("game-sound");
   const soundToggle = document.getElementById("sound-toggle");
@@ -1048,13 +1154,11 @@ showIdentityGate();
     }, 0);
   });
   document.addEventListener("click", event => {
-    const target = event.target.closest("button, .booth-card, .achievement-badge, .pin");
+    const target = event.target.closest("button, .booth-card, .pin");
     if (!target || target.id === "game-sound") return;
     if (target.id === "secret-emblem") return;
     comicSound("pop");
   }, true);
-
-  // A hidden five-tap emblem reveals a bonus mission. Progress is local to this browser.
   let emblemTaps = 0;
   const emblem = document.getElementById("secret-emblem");
   const secret = document.getElementById("secret-challenge");
@@ -1092,9 +1196,6 @@ showIdentityGate();
   });
   window.comicSound = comicSound;
 })();
-
-// Local progression layer: daily missions, collectible booth cards, ranks, and completion certificate.
-// This layer intentionally uses browser storage and existing success events; it does not alter Supabase schema or RPC calls.
 (() => {
   const KEY = "comic-universe-progress-v1";
   const $id = id => document.getElementById(id);
@@ -1150,8 +1251,6 @@ showIdentityGate();
     canvas.width = 1800; canvas.height = 1273;
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
-
-    // Warm aged-paper base with subtle print texture.
     const paper = ctx.createLinearGradient(0, 0, W, H);
     paper.addColorStop(0, "#F4E8CF");
     paper.addColorStop(.52, "#E9D9B9");
@@ -1162,8 +1261,6 @@ showIdentityGate();
       ctx.fillStyle = i % 3 ? "rgba(72,55,31,.045)" : "rgba(255,255,255,.16)";
       ctx.beginPath(); ctx.arc(x, y, (i % 4) + 1, 0, Math.PI * 2); ctx.fill();
     }
-
-    // Dark ink frame, teal inner rule and corner ornaments.
     ctx.fillStyle = "#071719"; ctx.fillRect(24, 24, W - 48, H - 48);
     ctx.fillStyle = "#E9D9B9"; ctx.fillRect(43, 43, W - 86, H - 86);
     ctx.strokeStyle = "#087B7D"; ctx.lineWidth = 9; ctx.strokeRect(66, 66, W - 132, H - 132);
@@ -1176,23 +1273,17 @@ showIdentityGate();
       ctx.fillStyle = "#B48D55"; ctx.beginPath(); ctx.arc(18,18,6,0,Math.PI*2); ctx.fill();
       ctx.restore();
     });
-
-    // Official event logo in a framed medallion.
     ctx.save();
     ctx.fillStyle = "#0A292B"; ctx.beginPath(); ctx.arc(900, 190, 112, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = "#D8B987"; ctx.lineWidth = 5; ctx.stroke();
     ctx.beginPath(); ctx.arc(900, 190, 101, 0, Math.PI * 2); ctx.strokeStyle = "#087B7D"; ctx.lineWidth = 3; ctx.stroke();
     ctx.drawImage(logo, 820, 110, 160, 160);
     ctx.restore();
-
-    // Header plaque and formal certificate title.
     ctx.fillStyle = "#0A292B"; ctx.fillRect(300, 305, 1200, 88);
     ctx.strokeStyle = "#D8B987"; ctx.lineWidth = 3; ctx.strokeRect(315, 320, 1170, 58);
     ctx.textAlign = "center"; ctx.direction = "rtl";
     ctx.fillStyle = "#54D1C7"; ctx.font = 'bold 34px "TufuliArabicDemo", "Noto Sans Arabic", sans-serif';
     ctx.fillText("مِضادّ  |  شهادة إنجاز", 900, 360);
-
-    // Main title with a restrained editorial hierarchy.
     ctx.fillStyle = "#0A292B"; ctx.font = 'bold 78px "TufuliArabicDemo", "Noto Sans Arabic", sans-serif';
     ctx.fillText("شهادة شكر وتقدير", 900, 500);
     ctx.fillStyle = "#087B7D"; ctx.fillRect(675, 527, 450, 7);
@@ -1209,8 +1300,6 @@ showIdentityGate();
     ctx.fillText("وذلك لإتمام جميع مهمات فعالية مِضادّ", 900, 865);
     ctx.font = '32px "TufuliArabicDemo", "Noto Sans Arabic", sans-serif';
     ctx.fillText("وتقديرًا لمشاركته وحرصه على نشر الوعي بالاستخدام الصحيح للمضادات الحيوية", 900, 925, 1500);
-
-    // Decorative teal seal and date/footer.
     ctx.fillStyle = "#0A292B"; ctx.beginPath(); ctx.arc(900, 1035, 62, 0, Math.PI*2); ctx.fill();
     ctx.strokeStyle = "#D8B987"; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(900, 1035, 51, 0, Math.PI*2); ctx.stroke();
     ctx.fillStyle = "#54D1C7"; ctx.font = "bold 54px Georgia, serif"; ctx.fillText("✦", 900, 1054);
@@ -1226,7 +1315,6 @@ showIdentityGate();
     const button = $id("certificate-download");
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    // Open a tab during the direct tap so Safari does not block it after async rendering.
     const previewWindow = isIOS ? window.open("about:blank", "_blank") : null;
     button.disabled = true;
     button.textContent = "جارٍ تجهيز الشهادة...";
@@ -1245,7 +1333,6 @@ showIdentityGate();
         if (previewWindow && !previewWindow.closed) {
           previewWindow.location.href = fileUrl;
         } else {
-          // Popup blockers may prevent the first tab; expose a direct open link instead.
           const fallback = document.createElement("a");
           fallback.href = fileUrl;
           fallback.target = "_blank";
@@ -1279,7 +1366,6 @@ showIdentityGate();
       button.textContent = "حفظ شهادة الشكر والتقدير كصورة";
     }
   });
-  // Keep the existing hero character interaction.
   const hero = document.querySelector(".hero-character");
   if (hero) {
     const poses = ["pose-guard", "pose-lean", "pose-proud"];
@@ -1289,11 +1375,6 @@ showIdentityGate();
   }
   render();
 })();
-
-// Community comic board and points-based item shop.
-const artCanvas = $("art-canvas");
-const artCtx = artCanvas?.getContext("2d");
-let activeArtPanel = null, adminArtEditId = null, artDrawing = false, artDirty = false, artHistory = [], artEraser = false, artworkRows = [];
 const ART_PANEL_COUNT = 120;
 const ART_OWNER_TOKEN_KEY = "community-art-owner-token-v1";
 function getArtOwnerToken(){
@@ -1309,66 +1390,66 @@ function getArtOwnerToken(){
   } catch(e) { return ""; }
 }
 const artOwnerToken=getArtOwnerToken();
-let ownedArtworkIds=new Set(), participantArtEditId=null;
-function blankArtCanvas(){ if(!artCtx)return; artCtx.save();artCtx.globalCompositeOperation="source-over";artCtx.fillStyle="#fff";artCtx.fillRect(0,0,artCanvas.width,artCanvas.height);artCtx.restore();artDirty=false;artHistory=[]; }
-function saveArtHistory(){ if(!artCanvas)return;try{artHistory.push(artCanvas.toDataURL("image/png"));if(artHistory.length>20)artHistory.shift();}catch(e){} }
-function drawArtImage(src){return new Promise(resolve=>{const img=new Image();img.onload=()=>{blankArtCanvas();artCtx.fillStyle="#fff";artCtx.fillRect(0,0,artCanvas.width,artCanvas.height);const scale=Math.min(artCanvas.width/img.width,artCanvas.height/img.height);const w=img.width*scale,h=img.height*scale;artCtx.drawImage(img,(artCanvas.width-w)/2,(artCanvas.height-h)/2,w,h);artDirty=false;resolve(true);};img.onerror=()=>resolve(false);img.src=src;});}
-function closeArtEditor(){$("art-editor")?.classList.add("hidden");document.body.classList.remove("art-editor-open");activeArtPanel=null;adminArtEditId=null;participantArtEditId=null;artDrawing=false;$("art-delete")?.classList.add("hidden");}
-async function openArtPanel(number, existing=null){ return; }
-
-if(artCanvas&&artCtx){
-  blankArtCanvas();
-  const point=e=>{const r=artCanvas.getBoundingClientRect();return{x:(e.clientX-r.left)*artCanvas.width/r.width,y:(e.clientY-r.top)*artCanvas.height/r.height};};
-  artCanvas.addEventListener("pointerdown",e=>{if(!activeArtPanel)return;artDrawing=true;artCanvas.setPointerCapture(e.pointerId);saveArtHistory();const p=point(e);artCtx.beginPath();artCtx.moveTo(p.x,p.y);artCtx.strokeStyle=artEraser?"#ffffff":$("art-color").value;artCtx.lineWidth=Number($("art-width").value)*(e.pointerType==="pen"&&e.pressure?Math.max(.35,e.pressure):1);artCtx.lineCap="round";artCtx.lineJoin="round";artDirty=true;});
-  artCanvas.addEventListener("pointermove",e=>{if(!artDrawing)return;const p=point(e);artCtx.lineTo(p.x,p.y);artCtx.stroke();});
-  ["pointerup","pointercancel","lostpointercapture"].forEach(t=>artCanvas.addEventListener(t,()=>artDrawing=false));
-}
-function importArtImage(file){
-  if(!file)return;
-  if(!file.type.startsWith("image/")){$("art-status").textContent="يرجى اختيار صورة صالحة.";return;}
-  if(file.size>8*1024*1024){$("art-status").textContent="حجم الصورة أكبر من 8 ميجابايت. اختر صورة أصغر.";return;}
-  const reader=new FileReader();
-  reader.onload=()=>{
-    const img=new Image();
-    img.onload=()=>{
-      saveArtHistory();
-      const scale=Math.min(artCanvas.width/img.width,artCanvas.height/img.height);
-      const w=img.width*scale,h=img.height*scale;
-      artCtx.drawImage(img,(artCanvas.width-w)/2,(artCanvas.height-h)/2,w,h);
-      artDirty=true;
-      $("art-status").textContent="تمت إضافة الصورة إلى اللوحة. يمكنك الرسم فوقها ثم حفظها.";
-    };
-    img.onerror=()=>$("art-status").textContent="تعذر فتح الصورة. جرّب صيغة أخرى.";
-    img.src=reader.result;
-  };
-  reader.onerror=()=>$("art-status").textContent="تعذر قراءة الصورة.";
-  reader.readAsDataURL(file);
-}
-$("art-camera-btn")?.addEventListener("click",()=>$("art-camera-input").click());
-$("art-gallery-btn")?.addEventListener("click",()=>$("art-gallery-input").click());
-$("art-camera-input")?.addEventListener("change",e=>{importArtImage(e.target.files?.[0]);e.target.value="";});
-$("art-gallery-input")?.addEventListener("change",e=>{importArtImage(e.target.files?.[0]);e.target.value="";});
-$("art-eraser")?.addEventListener("click",()=>{artEraser=!artEraser;$("art-eraser").classList.toggle("active",artEraser);$("art-eraser").textContent=artEraser?"الممحاة مفعلة":"الممحاة";});
-$("art-undo")?.addEventListener("click",async()=>{const prev=artHistory.pop();if(prev){await drawArtImage(prev);artDirty=true;}});
-$("art-clear")?.addEventListener("click",()=>{if(confirm("مسح محتوى هذا المربع؟")){saveArtHistory();blankArtCanvas();artDirty=true;}});
-$("art-editor-close")?.addEventListener("click",closeArtEditor);
+let ownedArtworkIds=new Set(), artworkRows=[];
 const communityBoard=$("art-board");
-let boardZoomLevel=0, pendingRevealPanel=0;
-function setBoardZoom(next){
-  boardZoomLevel=Math.max(-1,Math.min(2,next));
-  communityBoard?.classList.remove("board-zoom-minus","board-zoom-plus","board-zoom-max");
-  if(boardZoomLevel===-1)communityBoard?.classList.add("board-zoom-minus");
-  if(boardZoomLevel===1)communityBoard?.classList.add("board-zoom-plus");
-  if(boardZoomLevel===2)communityBoard?.classList.add("board-zoom-max");
+let pendingRevealPanel=0;
+let communityPreviewOverlay=null;
+let communityBoardPlaceholder=null;
+function closeCommunityBoardPreview(){
+  if(!communityPreviewOverlay)return;
+  if(communityBoardPlaceholder?.parentNode){
+    communityBoardPlaceholder.parentNode.insertBefore(communityBoard,communityBoardPlaceholder);
+    communityBoardPlaceholder.remove();
+  }
+  communityPreviewOverlay.remove();
+  communityPreviewOverlay=null;
+  communityBoardPlaceholder=null;
+  communityBoard?.classList.remove("board-expanded","board-image-preview");
+  document.body.classList.remove("community-board-open");
+  const button=$("art-board-fullscreen");
+  if(button){button.setAttribute("aria-pressed","false");button.textContent="⛶ تكبير الصورة كاملة";button.setAttribute("aria-label","تكبير الصورة الجماعية كاملة");}
 }
-$("art-board-zoom-in")?.addEventListener("click",()=>setBoardZoom(boardZoomLevel+1));
-$("art-board-zoom-out")?.addEventListener("click",()=>setBoardZoom(boardZoomLevel-1));
-$("art-board-fullscreen")?.addEventListener("click",()=>{
+function setCommunityBoardPreview(enabled){
   if(!communityBoard)return;
-  const expanded=communityBoard.classList.toggle("board-expanded");
-  document.body.classList.toggle("community-board-open",expanded);
-  $("art-board-fullscreen").textContent=expanded?"× إغلاق التكبير":"⛶ تكبير اللوحة";
-  if(expanded)communityBoard.scrollIntoView({block:"start"});
+  if(!enabled){closeCommunityBoardPreview();return;}
+  if(communityPreviewOverlay)return;
+  const button=$("art-board-fullscreen");
+  communityBoardPlaceholder=document.createComment("community-board-position");
+  communityBoard.parentNode.insertBefore(communityBoardPlaceholder,communityBoard);
+  communityPreviewOverlay=document.createElement("div");
+  communityPreviewOverlay.className="comic-preview-overlay";
+  communityPreviewOverlay.setAttribute("role","dialog");
+  communityPreviewOverlay.setAttribute("aria-modal","true");
+  communityPreviewOverlay.setAttribute("aria-label","عرض الصورة الجماعية كاملة");
+  const header=document.createElement("div");
+  header.className="comic-preview-header";
+  const heading=document.createElement("div");
+  heading.className="comic-preview-heading";
+  const title=document.createElement("strong");
+  title.textContent="الصورة الجماعية";
+  const summary=document.createElement("small");
+  summary.className="comic-preview-summary";
+  const discovered=artworkRows.length;
+  summary.textContent=`${ar(discovered)} من ١٢٠ مربعًا مكتشفًا · عرض جميع المربعات`;
+  heading.append(title,summary);
+  const close=document.createElement("button");
+  close.type="button";close.className="comic-preview-close";close.textContent="×";close.setAttribute("aria-label","إغلاق عرض الصورة");
+  close.addEventListener("click",closeCommunityBoardPreview);
+  header.append(heading,close);
+  const stage=document.createElement("div");
+  stage.className="comic-preview-stage";
+  stage.append(communityBoard);
+  communityPreviewOverlay.append(header,stage);
+  communityPreviewOverlay.addEventListener("click",event=>{if(event.target===communityPreviewOverlay)closeCommunityBoardPreview();});
+  document.body.append(communityPreviewOverlay);
+  communityBoard.classList.add("board-expanded","board-image-preview");
+  document.body.classList.add("community-board-open");
+  if(button){button.setAttribute("aria-pressed","true");button.textContent="× إغلاق عرض الصورة";button.setAttribute("aria-label","إغلاق عرض الصورة المكبرة");}
+  close.focus({preventScroll:true});
+}
+$("art-board-fullscreen")?.addEventListener("click",()=>setCommunityBoardPreview(!communityPreviewOverlay));
+document.addEventListener("keydown",event=>{
+  if(event.key==="Escape"&&communityPreviewOverlay)closeCommunityBoardPreview();
 });
 async function loadArtwork(){
   const root=$("art-board");if(!root||!supabaseClient)return;
@@ -1405,36 +1486,6 @@ async function loadArtwork(){
   }
 }
 
-async function openAdminArtworkEdit(row){adminArtEditId=row.id;participantArtEditId=null;activeArtPanel=Number(row.panel_number);$("art-editor-title").textContent=`تعديل رسمة المربع ${ar(row.panel_number)}`;$("art-status").textContent=`تعديل رسمة ${row.player_name} من لوحة التحكم.`;$("art-editor").classList.remove("hidden");document.body.classList.add("art-editor-open");$("art-delete")?.classList.add("hidden");await drawArtImage(row.image_data);artDirty=false;}
-$("art-delete")?.addEventListener("click",async()=>{
-  if(!participantArtEditId||!artOwnerToken)return;
-  if(!confirm("هل تريد حذف مساهمتك نهائيًا؟"))return;
-  const button=$("art-delete");button.disabled=true;
-  const {error}=await supabaseClient.rpc("delete_community_artwork",{p_artwork_id:participantArtEditId,p_owner_token:artOwnerToken});
-  button.disabled=false;
-  if(error){$("art-status").textContent="تعذر حذف المساهمة. تأكد من تطبيق تحديث SQL.";return;}
-  toast("تم حذف مساهمتك.");closeArtEditor();await loadArtwork();
-});
-$("art-submit")?.addEventListener("click",async()=>{
-  const status=$("art-status"),name=getPlayerName();
-  if(!activeArtPanel||(!adminArtEditId&&!isFullName(name))){status.textContent="أدخل اسم المشاركة واختر مربعًا أولًا.";return;}
-  if(!supabaseClient){status.textContent="تعذر الاتصال بقاعدة البيانات.";return;}
-  if(!artDirty){status.textContent="أضف صورة أو أجرِ تعديلًا على الرسم قبل الحفظ.";return;}
-  if(!adminArtEditId&&!participantArtEditId&&ownedArtworkIds.size>=1){status.textContent="يسمح لكل مشارك بمربع واحد فقط. افتح مربعك الحالي لتعديله.";return;}
-  if(!adminArtEditId&&!artOwnerToken){status.textContent="تعذر إنشاء مفتاح ملكية لهذه المساهمة. فعّل التخزين المحلي ثم أعد المحاولة.";return;}
-  const button=$("art-submit");button.disabled=true;status.textContent="جارٍ حفظ المساهمة...";
-  const image=artCanvas.toDataURL("image/jpeg",0.82);
-  let result;
-  if(adminArtEditId){result=await supabaseClient.from("community_artworks").update({image_data:image}).eq("id",adminArtEditId);}
-  else if(participantArtEditId){result=await supabaseClient.rpc("update_community_artwork",{p_artwork_id:participantArtEditId,p_owner_token:artOwnerToken,p_image_data:image});}
-  else{
-    const existing=artworkRows.find(x=>Number(x.panel_number)===activeArtPanel);
-    if(existing){status.textContent="هذا المربع مستخدم من مشارك آخر. اختر مربعًا فارغًا.";button.disabled=false;return;}
-    result=await supabaseClient.from("community_artworks").insert({panel_number:activeArtPanel,player_name:name,image_data:image,owner_token:artOwnerToken});
-  }
-  if(result.error){status.textContent=result.error.code==="23505"?"سبق أن حُجز هذا المربع. اختر مربعًا آخر.":`تعذر حفظ المساهمة: ${result.error.message}`;button.disabled=false;return;}
-  status.textContent="تم حفظ مساهمتك ونشرها!";artDirty=false;button.disabled=false;await loadArtwork();setTimeout(closeArtEditor,650);
-});
 async function renderAdminArt(){const root=$("admin-art-list");if(!root||!supabaseClient)return;const {data,error}=await supabaseClient.from("community_artworks").select("id,panel_number,player_name,created_at").order("panel_number");if(error){root.textContent="تعذر تحميل إدارة الصورة الجماعية.";return;}root.innerHTML="";(data||[]).forEach(a=>{const row=document.createElement("div");row.className="admin-managed-row";const label=document.createElement("span");label.textContent=`المربع ${ar(a.panel_number)} · ${a.player_name}`;const del=document.createElement("button");del.className="small-btn danger";del.textContent="إخفاء المربع";del.onclick=async()=>{if(!confirm(`إخفاء المربع ${a.panel_number} من الصورة؟`))return;const {error}=await supabaseClient.from("community_artworks").delete().eq("id",a.id);if(error)toast("تعذر إخفاء المربع");else{toast("تم إخفاء المربع");renderAdminArt();loadArtwork();}};row.append(label,del);root.append(row);});if(!data?.length)root.textContent="لم تُكشف أي مربعات بعد.";}
 
 let shopRows=[];
@@ -1485,7 +1536,7 @@ $("shop-receipt-print")?.addEventListener("click",()=>{
   const paper=$("shop-receipt-paper");if(!paper)return;
   const win=window.open("","_blank","width=720,height=800");
   if(!win){toast("اسمح بالنوافذ المنبثقة لطباعة الفاتورة.");return;}
-  win.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة الشراء</title><style>body{font-family:Tahoma,Arial,sans-serif;padding:28px;color:#071d35} .receipt{max-width:560px;margin:auto;border:2px solid #071d35;padding:26px;border-radius:14px}h3{text-align:center;font-size:24px}.receipt-success-mark{text-align:center;font-size:38px;color:#078b83}.receipt-subtitle,.receipt-footer{text-align:center;color:#526779}.receipt-number-row,.receipt-line{display:flex;justify-content:space-between;gap:18px;padding:13px 0;border-bottom:1px solid #dbe5e8}.receipt-number-row{font-weight:bold;background:#edf8f8;padding:14px}.receipt-divider{border-top:2px dashed #9bb8bd;margin:18px 0}.receipt-footer{margin-top:24px}</style></head><body><div class="receipt">${paper.innerHTML}</div><script>window.onload=()=>{window.print();};<\/script></body></html>`);
+  win.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>فاتورة الشراء</title><style>body{font-family:Tahoma,Arial,sans-serif;padding:28px;color:#03252F} .receipt{max-width:560px;margin:auto;border:2px solid #08424D;padding:26px;border-radius:14px}h3{text-align:center;font-size:24px}.receipt-success-mark{text-align:center;font-size:38px;color:#B78F49}.receipt-subtitle,.receipt-footer{text-align:center;color:#60777B}.receipt-number-row,.receipt-line{display:flex;justify-content:space-between;gap:18px;padding:13px 0;border-bottom:1px solid #D9D0C3}.receipt-number-row{font-weight:bold;background:#F2E8D4;padding:14px}.receipt-divider{border-top:2px dashed #B78F49;margin:18px 0}.receipt-footer{margin-top:24px}</style></head><body><div class="receipt">${paper.innerHTML}</div><script>window.onload=()=>{window.print();};<\/script></body></html>`);
   win.document.close();
 });
 async function loadShop(){if(!supabaseClient)return;const {data,error}=await supabaseClient.from("reward_shop_items").select("id,name,description,price,stock,image_url").eq("active",true).order("created_at",{ascending:false});const root=$("shop-items");if(error){root.textContent="تعذر تحميل المتجر. تحقق من إعدادات قاعدة البيانات.";console.error(error);return;}shopRows=data||[];root.innerHTML="";const name=getPlayerName();let balance=0;if(name){const {data:stats}=await supabaseClient.from("event_leaderboard").select("total_score").eq("player_key",name.toLocaleLowerCase()).maybeSingle();balance=Number(stats?.total_score||0);}$("shop-balance").textContent=ar(balance);shopRows.forEach(item=>{const card=document.createElement("article");card.className="shop-item";const media=document.createElement("div");media.className="shop-item-media";if(item.image_url){const img=document.createElement("img");img.src=item.image_url;img.alt=item.name;media.append(img);}else{const placeholder=document.createElement("span");placeholder.textContent="✦";media.append(placeholder);}const ribbon=document.createElement("span");ribbon.className="shop-ribbon";ribbon.textContent=item.stock>0?`متوفر · ${ar(item.stock)}`:"نفد المخزون";media.append(ribbon);const body=document.createElement("div");body.className="shop-item-body";const title=document.createElement("h3");title.textContent=item.name;const desc=document.createElement("p");desc.textContent=item.description||"جائزة حصرية من متجر الفعالية.";const foot=document.createElement("div");foot.className="shop-item-foot";const price=document.createElement("b");price.className="shop-price";price.textContent=`${ar(item.price)} نقطة`;const buy=document.createElement("button");buy.className="primary shop-buy";buy.textContent="احصل عليها";buy.disabled=item.stock<1||balance<item.price||!name;buy.onclick=async()=>{if(!confirm(`شراء ${item.name} مقابل ${item.price} نقطة؟`))return;buy.disabled=true;buy.textContent="جارٍ الشراء...";const {data,error}=await supabaseClient.rpc("purchase_reward_item",{p_item_id:item.id,p_player_key:name.toLocaleLowerCase()});if(error){console.error("Reward purchase failed",error);const msg=String(error.message||"");const code=String(error.code||"");$("shop-status").textContent=msg.includes("INSUFFICIENT")?"رصيدك من النقاط لا يكفي.":msg.includes("OUT_OF_STOCK")?"عذرًا، نفدت الكمية.":msg.includes("ITEM_NOT_FOUND")?"هذا الغرض لم يعد متاحًا.":msg.includes("PLAYER_NOT_FOUND")?"لم يتم العثور على حساب النقاط لهذا الاسم.":`تعذر إتمام الشراء (${code||"خطأ"}). راجع تحديث قاعدة البيانات.`;buy.disabled=false;buy.textContent="إعادة المحاولة";return;}if(!data?.success){$("shop-status").textContent="لم يتم تأكيد عملية الشراء. حدّث الصفحة وحاول مجددًا.";buy.disabled=false;buy.textContent="إعادة المحاولة";return;}$("shop-status").textContent="تم الشراء بنجاح! صدرت فاتورتك ويمكنك طباعتها أو حفظها PDF.";toast("تم الشراء وإصدار الفاتورة");showShopReceipt(data,name,item);await loadShop();};foot.append(price,buy);body.append(title,desc,foot);card.append(media,body);root.append(card);});if(!shopRows.length)root.textContent="لا توجد أغراض متاحة حاليًا.";}
@@ -1494,9 +1545,8 @@ $("shop-save")?.addEventListener("click",async()=>{const id=$("shop-edit-id").va
 $("shop-cancel")?.addEventListener("click",()=>{["shop-edit-id","shop-edit-name","shop-edit-description","shop-edit-image"].forEach(id=>$(id).value="");$("shop-edit-price").value=50;$("shop-edit-stock").value=1;selectedShopImageFile=null;setShopImagePreview(null);$("shop-admin-status").textContent="";});
 let artworkRealtime=null,shopRealtime=null;
 function startCommunityRealtime(){if(!supabaseClient)return;if(!artworkRealtime)artworkRealtime=supabaseClient.channel("community-art-live").on("postgres_changes",{event:"*",schema:"public",table:"community_artworks"},()=>loadArtwork()).subscribe((status)=>{});if(!shopRealtime)shopRealtime=supabaseClient.channel("reward-shop-live").on("postgres_changes",{event:"*",schema:"public",table:"reward_shop_items"},()=>loadShop()).subscribe();}
-// Refresh new sections after the participant identity and admin session are ready.
 const originalShowAdmin = showAdmin;
-showAdmin = function(session){originalShowAdmin(session);if(session){renderAdminArt();renderAdminShop();}};
+showAdmin = async function(session){await originalShowAdmin(session);if(session && !$("admin-view").classList.contains("hidden")){renderAdminArt();renderAdminShop();}};
 const originalRememberPlayerName = rememberPlayerName;
 rememberPlayerName = function(name){originalRememberPlayerName(name);loadShop();};
 loadArtwork();loadShop();startCommunityRealtime();
