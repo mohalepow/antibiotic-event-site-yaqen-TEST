@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#F1F8F9"><meta name="description" content="الدليل التفاعلي لفعالية التوعية بالمضادات الحيوية">
+<title>دليل فعالية مِضادّ</title><link rel="preload" href="assets/fonts/NotoSansArabic-Regular.woff2" as="font" type="font/woff2" crossorigin><link rel="preload" href="assets/fonts/Amiri-Bold.woff2" as="font" type="font/woff2" crossorigin><link rel="stylesheet" href="style.css">
+</head>
+<body class="intro-lock site-access-pending site-is-locked">
+<div class="intro-screen" id="intro-screen" role="dialog" aria-modal="true" aria-label="ترحيب بفعالية نادي يقن" aria-live="polite">
+ <div class="intro-glow intro-glow-one"></div><div class="intro-glow intro-glow-two"></div>
+ <div class="intro-content">
+  <img class="intro-hero-character" src="assets/hero-character.png" alt="" aria-hidden="true">
+  <img class="intro-logo" src="assets/images/site-logo.png" alt="شعار دليل الفعالية">
+  <div class="intro-welcome" id="intro-welcome">
+   <span class="intro-kicker">كلية الصيدلة · جامعة أم القرى</span>
+   <h1>أهلًا بكم في فعالية<br><em>نادي يقن</em></h1>
+   <p>للتوعية بالمضادات الحيوية</p>
+   <span class="intro-line"></span>
+  </div>
+  <div class="intro-credit" id="intro-credit" aria-hidden="true">
+   <span>MADE BY</span><strong>Dr.GHOST</strong><small>X : @dr0ghost</small>
+  </div>
+ </div>
+ <button class="intro-skip" id="intro-skip" type="button">تخطي المقدمة</button>
+</div>
+<div class="top-credit" aria-label="حقوق تصميم وتطوير الموقع">
+ <span>MADE BY <b>Dr.GHOST</b> | X : <a href="https://x.com/dr0ghost" target="_blank" rel="noopener noreferrer">@dr0ghost</a></span>
+</div>
+<header class="topbar">
+ <a class="brand" href="#"><img class="brand-logo" src="assets/images/site-logo.png" alt="شعار الفعالية"><span><b>دليل الفعالية</b><small>التوعية بالمضادات الحيوية</small></span></a>
+ <nav><a href="#map">الخريطة</a><a href="#game">اللعبة</a><a href="#quiz">الاختبار</a><a href="#booths">البوثات</a><a href="#community-art">اللوحة</a><a href="#reward-shop">المتجر</a><button id="sound-toggle" class="outline-btn sound-toggle" type="button" aria-pressed="true">🔊 المؤثرات</button><button id="admin-open" class="outline-btn">لوحة التحكم</button></nav>
+</header>
+<main>
+<section class="hero"><div class="hero-copy"><span class="eyebrow">مرحبًا بك في فعاليتنا</span><h1 class="event-brand-title"><em>مِضادّ</em></h1><p>اكتشف أركان الفعالية، وتعرّف على موضوع كل بوث، واعرف مكانه بسهولة من خلال الخريطة التفاعلية.</p><a class="primary-btn" href="#map">استكشف خريطة الفعالية <span>←</span></a></div>
+<div class="hero-art" aria-hidden="true"><div class="orb o1"></div><div class="orb o2"></div><div class="capsule"></div><b>+</b><img class="hero-character" src="assets/hero-character.png" alt=""></div></section>
+<section class="section mission-hub" id="missions" aria-labelledby="missions-title">
+ <div class="heading"><div><span class="eyebrow">ملف الحارس</span><h2 id="missions-title">المهمات والرتب</h2></div><span class="count" id="hero-rank">رتبة: مستكشف</span></div>
+ <p class="intro">أنجز المهمات الثلاث، واجمع بطاقات الأركان، واحصل على شهادة شكر وتقدير باسمك.</p>
+ <div class="mission-summary"><div class="mission-progress-copy"><b id="mission-progress-label">تقدم مهمات اليوم</b><span id="mission-progress-value">٠ / ٣</span></div><div class="mission-progress-track"><span id="mission-progress-fill"></span></div></div>
+ <div class="mission-grid" id="daily-missions"></div>
+ <div class="collection-panel"><div><span class="eyebrow">ملف التجميع</span><h3>بطاقات البوثات</h3><p>تُفتح البطاقة عند تسجيل زيارتك عبر رمز QR المعتمد.</p></div><div class="collection-cards" id="booth-collection"><span class="collection-empty">ستظهر بطاقاتك بعد تسجيل الزيارات.</span></div></div>
+ <div class="mission-certificate hidden" id="mission-certificate" role="status" aria-live="polite">
+  <div class="certificate-copy"><span class="eyebrow">إنجاز مستحق</span><h3>أحسنت! أكملت جميع المهمات</h3><p>أصبحت شهادتك جاهزة. يمكنك حفظها كصورة في هاتفك ومشاركتها.</p><button class="primary" id="certificate-download" type="button">حفظ شهادة الشكر والتقدير كصورة</button></div>
+  <div class="certificate-preview" aria-hidden="true"><span>✦</span><b>شهادة شكر وتقدير</b><small>تُمنح تقديرًا لإكمال جميع المهمات</small></div>
+ </div>
+</section>
+<section class="section" id="map"><div class="heading"><div><span class="eyebrow">دليلك داخل الفعالية</span><h2>خريطة البوثات</h2></div><span class="count" id="booth-count">٥ بوثات</span></div><p class="intro">اضغط على علامة أي بوث لمعرفة تفاصيله وموقعه.</p>
+<div class="map-layout"><div class="map-card"><div class="map-toolbar"><b>مخطط موقع الفعالية</b><span>اضغط على العلامات</span></div><div class="map-canvas" id="map-canvas"><img id="floorplan" src="assets/floor-plan-placeholder.svg" alt="مخطط موقع الفعالية"><div id="map-pins"></div><div id="map-empty" class="map-empty">سيظهر هنا مخطط موقع الفعالية بعد رفع صورته من لوحة التحكم</div></div><div class="map-legend"><span>● موقع بوث</span><span>الخريطة التفاعلية</span></div></div>
+<aside class="details-card"><div id="details-empty" class="empty"><div>⌖</div><b>اختر أحد البوثات</b><p>ستظهر هنا معلومات البوث الذي تختاره من الخريطة.</p></div><article id="details-content" class="details-content hidden"><div class="detail-meta"><span id="detail-number"></span><span id="detail-category"></span></div><div class="detail-icon" id="detail-icon">✚</div><h3 id="detail-title"></h3><p id="detail-description"></p><div class="location"><span>⌖</span><div><small>موقع البوث</small><b id="detail-location"></b></div></div></article></aside></div></section>
+
+<section class="section game-section" id="game">
+ <div class="heading"><div><span class="eyebrow">تحدّي داخل الجسم</span><h2>رحلة المضاد الحيوي</h2></div><span class="count">لعبة تفاعلية</span></div>
+ <p class="intro">ساعد كبسولة المضاد الحيوي على المرور بين خلايا الجسم وتجنّب العوائق. ترتفع صعوبة اللعبة تلقائيًا بعد كل ١٠ نقاط، مع عوائق أسرع ومسافات عبور أضيق.</p>
+ <div class="game-layout">
+  <div class="game-card">
+   <div class="game-hud"><span>النقاط <b id="game-score">٠</b></span><span class="game-level-pill">المستوى <b id="game-level">١</b></span><span>أفضل نتيجة <b id="game-best">٠</b></span></div>
+   <div class="game-stage" id="game-stage">
+    <img class="game-mascot" src="assets/hero-character.png" alt="" aria-hidden="true">
+    <canvas id="game-canvas" aria-label="لعبة رحلة المضاد الحيوي"></canvas>
+    <div class="game-overlay" id="game-overlay"><div class="game-start-box"><span class="game-pill">✚</span><h3 id="game-message-title">مستعد للرحلة؟</h3><p id="game-message">اضغط ابدأ، ثم المس الشاشة أو اضغط مسافة لتحريك الكبسولة للأعلى.</p><button class="primary" id="game-start">ابدأ اللعب</button></div></div>
+   </div>
+   <div class="game-controls"><span id="game-difficulty-note">تزداد الصعوبة كل ١٠ نقاط</span><div class="game-control-actions"><button id="game-sound" class="sound-btn" type="button" aria-pressed="true">🔊 الصوت يعمل</button><button id="game-flap" class="secondary">ارفع الكبسولة ↑</button></div></div>
+   <div id="game-submit" class="game-submit hidden"><b>سجّل نقاطك في لوحة المتصدرين</b><div class="score-entry"><input id="player-name" maxlength="80" placeholder="اسم المشارك المعتمد" readonly><button id="submit-score" class="primary">إضافة نتيجتي</button></div><p id="score-status" class="hint"></p></div>
+  </div>
+  <aside class="leader-card"><div class="leader-title"><span>🏆</span><div><h3>لوحة المتصدرين</h3><p>ترتيب موحّد للألعاب والاختبارات</p></div></div><div id="leaderboard"><p class="leader-empty">تظهر أسماء المشاركين هنا بعد تسجيل نتائجهم.</p></div><p class="leader-note">المجموع يجمع نقاط لعبة رحلة المضاد الحيوي والاختبار المعرفي، وتُضاف نقاط كل محاولة إلى رصيد المشارك.</p></aside>
+ </div>
+</section>
+
+<section class="section quiz-section" id="quiz">
+ <div class="heading"><div><span class="eyebrow">اختبر معلوماتك</span><h2>تحدّي المعرفة</h2></div><span class="count">٥ أسئلة · ٥٠ نقطة</span></div>
+ <p class="intro">أجب عن الأسئلة الخمسة حول الاستخدام الصحيح للمضادات الحيوية. كل إجابة صحيحة تمنحك ١٠ نقاط تُضاف مباشرة إلى مجموعك.</p>
+ <div class="quiz-shell">
+  <div id="quiz-questions" class="quiz-questions"></div>
+  <div class="quiz-actions"><button id="quiz-submit" class="primary">اعتماد الإجابات</button><button id="quiz-reset" class="secondary hidden">إعادة الاختبار</button><p id="quiz-status" class="hint" role="status"></p></div>
+  <div id="quiz-result" class="quiz-result hidden" role="status"><span class="quiz-result-icon">✦</span><div><b id="quiz-result-title">أحسنت!</b><p id="quiz-result-text"></p></div></div>
+  <div id="quiz-review" class="quiz-review hidden"></div>
+ </div>
+ <p class="quiz-disclaimer">المحتوى للتوعية العامة، ولا يغني عن استشارة الطبيب أو الصيدلي.</p>
+</section>
+
+
+
+
+
+<section class="section hidden-secret hidden" id="secret-challenge" aria-live="polite"><div class="secret-challenge-card"><span class="secret-stamp">CLASSIFIED</span><h2>ملف المهمة السرية: الحارس المجهول</h2><p>اكتشفت إشارة مخفية! أثبت وعيك: أكمل الاختبار المعرفي بنتيجة كاملة لفتح ختم الحارس.</p><div id="secret-progress">المهمة بانتظارك…</div></div></section>
+
+<section class="section" id="community-art"><div class="heading"><div><span class="eyebrow">جدار الأبطال</span><h2>لوحة الكوميك الجماعية</h2></div><span class="count">١٢٠ مربعًا لإكمال الصورة</span></div><p class="intro">اختر مربعًا واحدًا لكشف جزء من الصورة. كلما شارك شخص جديد، ظهرت مساحة إضافية حتى تكتمل صورة البطل للجميع.</p><div class="comic-board-toolbar">
+  <div class="board-toolbar-copy"><b>لوحة المشاركين</b><small>كبّر اللوحة للتصفح والرؤية بوضوح</small></div>
+  <div class="board-toolbar-actions">
+    <button id="art-board-zoom-out" class="small-btn" type="button" aria-label="تصغير مربعات اللوحة">−</button>
+    <button id="art-board-zoom-in" class="small-btn" type="button" aria-label="تكبير مربعات اللوحة">+</button>
+   
+  </div>
+</div><div id="art-board" class="comic-board" aria-label="لوحة الصورة الجماعية من ١٢٠ مربعًا"></div><p id="art-status" class="hint" role="status"></p></section>
+<section class="section" id="reward-shop"><div class="heading"><div><span class="eyebrow">متجر الحارس</span><h2>متجر الجوائز</h2></div><span class="count">العملة: نقاطك</span></div><p class="intro">استبدل نقاطك المجمّعة من أنشطة الفعالية بجوائز محدودة الكمية.</p><div class="shop-balance">رصيدك الحالي: <b id="shop-balance">٠</b> نقطة</div><div id="shop-items" class="shop-grid"><p class="leader-empty">جارٍ تحميل المتجر...</p></div><p id="shop-status" class="hint" role="status"></p></section>
+<section class="section" id="booths"><div class="heading"><div><span class="eyebrow">تعرّف على الأركان</span><h2>جميع البوثات</h2></div></div><label class="search"><span>⌕</span><input id="search" placeholder="ابحث عن بوث أو موضوع..."></label><div class="booth-grid" id="booth-list"></div><p id="no-results" class="hidden">ما لقينا بوث بهذا الاسم.</p></section>
+<section class="closing"><span>✳</span><div><h2>معرفة اليوم، حماية للغد</h2><p>استخدم المضادات الحيوية بمسؤولية، وبحسب إرشادات المختصين.</p></div></section>
+</main><footer><span>فعالية التوعية بالمضادات الحيوية</span><span>دليلك طوال الفعالية</span><span class="footer-credit">MADE BY <b>Dr.GHOST</b> | X : <a href="https://x.com/dr0ghost" target="_blank" rel="noopener noreferrer">@dr0ghost</a></span></footer>
+
+<div id="site-lock-screen" class="site-lock-screen" role="dialog" aria-modal="true" aria-labelledby="site-lock-title">
+ <div class="site-lock-card"><div class="site-lock-mark"><img src="assets/images/site-logo.png" alt="شعار فعالية مِضادّ"></div><span class="eyebrow">فريق يقن · مِضادّ</span><h1 id="site-lock-title">جارٍ التحقق من إتاحة الموقع</h1><p id="site-lock-message">لحظات من فضلك، نتحقق من حالة الموقع.</p><div id="site-lock-countdown" class="site-lock-countdown hidden"></div><button id="site-lock-admin" class="outline-btn" type="button">دخول الإدارة</button></div>
+</div>
+<div id="admin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-title">
+ <div class="modal-panel admin-panel"><div class="modal-head"><div><span class="eyebrow">إدارة الموقع</span><h2 id="admin-title">لوحة التحكم</h2></div><button id="admin-close" class="close">×</button></div>
+ <div id="login-view"><p class="muted">سجّل الدخول بحساب المدير لإدارة الخريطة والبوثات.</p><label>البريد الإلكتروني<input id="email" type="email" autocomplete="username" placeholder="أدخل البريد الإلكتروني للمدير"></label><label>كلمة المرور<input id="password" type="password" autocomplete="current-password" placeholder="كلمة المرور"></label><button id="login-btn" class="primary full">تسجيل الدخول</button><p id="login-error" class="error"></p><p class="hint">إنشاء حساب المدير يتم أول مرة من لوحة Supabase، وليس من صفحة الزوار.</p></div>
+ <div id="admin-view" class="hidden">
+  <section id="admin-dashboard" class="admin-dashboard admin-block">
+   <div class="dashboard-heading"><div><span class="eyebrow">مركز المتابعة</span><h3>لوحة الإحصائيات المباشرة</h3><p>ملخص تفاعلات الزوار ونتائج أنشطة الفعالية.</p></div><div class="dashboard-actions"><span id="admin-live-state" class="live-state"><i></i> جارٍ الاتصال</span><button id="refresh-dashboard" class="small-btn" type="button">تحديث الآن ↻</button></div></div>
+   <div id="dashboard-error" class="dashboard-error hidden" role="status"></div>
+   <div class="dashboard-stats">
+    <article class="dashboard-stat"><span>زيارات اليوم</span><b id="admin-visits-today">٠</b><small>زيارة فريدة لكل جهاز يوميًا</small></article>
+    <article class="dashboard-stat"><span>إجمالي الزيارات</span><b id="admin-visits-total">٠</b><small>زيارات مسجلة منذ بدء التتبع</small></article>
+    <article class="dashboard-stat"><span>المشاركون</span><b id="admin-participants">٠</b><small>أسماء مسجلة في الأنشطة</small></article>
+    <article class="dashboard-stat"><span>إجمالي النقاط</span><b id="admin-points">٠</b><small>اللعبة والاختبارات معًا</small></article>
+    <article class="dashboard-stat"><span>محاولات اللعب</span><b id="admin-games">٠</b><small>جميع المحاولات المسجلة</small></article>
+    <article class="dashboard-stat"><span>الاختبارات المكتملة</span><b id="admin-quizzes">٠</b><small>عدد مرات اعتماد الاختبار</small></article>
+    <article class="dashboard-stat"><span>الأركان المنشأة</span><b id="admin-booths-count">٠</b><small>الأركان الظاهرة في الدليل</small></article>
+   </div>
+   <div class="dashboard-panels">
+    <section class="dashboard-card"><div class="dashboard-card-heading"><div><h4>حركة الزيارات</h4><p>آخر سبعة أيام حسب توقيت مكة المكرمة</p></div><span class="dashboard-card-icon">⌁</span></div><div id="admin-visits-chart" class="visits-chart"><p class="dashboard-empty">سيظهر مخطط الزيارات بعد تحميل البيانات.</p></div></section>
+    <section class="dashboard-card"><div class="dashboard-card-heading"><div><h4>أفضل المشاركين</h4><p>ترتيب النقاط من اللعبة والاختبار</p></div><span class="dashboard-card-icon">🏆</span></div><div id="admin-top-players" class="admin-live-list"><p class="dashboard-empty">لا توجد نتائج مسجلة حتى الآن.</p></div></section>
+    <section class="dashboard-card dashboard-recent-card"><div class="dashboard-card-heading"><div><h4>أحدث المشاركات</h4><p>آخر المشاركين الذين سجلوا نتائج</p></div><span class="dashboard-card-icon">◷</span></div><div id="admin-recent-players" class="admin-live-list"><p class="dashboard-empty">لا توجد مشاركات حتى الآن.</p></div></section>
+   </div>
+   <p id="dashboard-updated" class="dashboard-updated">لم يتم تحديث البيانات بعد.</p>
+  </section>
+  <section class="admin-block site-access-admin"><h3>التحكم في إتاحة الموقع</h3><p class="hint">أوقف دخول الزوار مؤقتًا واعرض لهم رسالة من اختيارك، أو حدّد وقتًا يفتح فيه الموقع تلقائيًا.</p><label>رسالة الزوار<textarea id="site-lock-message-input" rows="3" maxlength="500" placeholder="اكتب رسالة تظهر للزوار أثناء إيقاف الموقع..."></textarea></label><label>فتح الموقع تلقائيًا (اختياري)<input id="site-lock-unlock-at" type="datetime-local"></label><div class="actions"><button id="site-lock-enable" class="primary" type="button">إيقاف دخول الزوار</button><button id="site-lock-disable" class="secondary" type="button">فتح الموقع الآن</button></div><p id="site-lock-admin-status" class="hint" role="status"></p></section>
+  <div class="admin-toolbar"><span id="admin-email"></span><button id="logout-btn" class="text-btn">تسجيل الخروج</button></div>
+  <section class="admin-block admin-quick-tools"><div class="admin-section-title"><h3>مركز أدوات التجربة</h3><span class="hint">وصول سريع للأنظمة</span></div><div class="admin-quick-links"><a href="#missions" class="small-btn">المهمات والشهادة</a><a href="#game" class="small-btn">مراحل اللعبة</a><a href="#quiz" class="small-btn">الاختبار</a><a href="#booths" class="small-btn">بطاقات البوثات</a><a href="#community-art" class="small-btn">لوحة المشاركين</a><a href="#reward-shop" class="small-btn">متجر الجوائز</a></div><p class="hint">يمكنك معاينة أنظمة الكوميك مباشرة من الموقع دون تغيير إعدادات قاعدة البيانات.</p></section>
+  <section class="admin-block"><h3>إدارة لوحة المشاركين</h3><p class="hint">يمكن تعديل اسم صاحب الرسمة أو حذف الرسمة من المعرض العام.</p><div id="admin-art-list" class="admin-managed-list"></div></section>
+  <section class="admin-block"><h3>إدارة متجر الجوائز</h3><p class="hint">حدد سعر كل غرض بالنقاط والكمية المتاحة خلال الفعالية.</p><div class="shop-editor"><input id="shop-edit-id" type="hidden"><label>اسم الغرض<input id="shop-edit-name" maxlength="80" placeholder="اسم الجائزة"></label><label>وصف الغرض<input id="shop-edit-description" maxlength="240" placeholder="وصف مختصر"></label><label>السعر بالنقاط<input id="shop-edit-price" type="number" min="1" step="1" value="50"></label><label>الكمية المتاحة<input id="shop-edit-stock" type="number" min="0" step="1" value="1"></label><div class="shop-image-picker"><span class="shop-image-label">صورة الغرض (اختياري)</span><div class="shop-image-actions"><button id="shop-camera-btn" class="secondary" type="button">📷 التصوير بالكاميرا</button><button id="shop-gallery-btn" class="secondary" type="button">🖼️ اختيار من الاستوديو</button></div><input id="shop-camera-input" class="visually-hidden-file" type="file" accept="image/*" capture="environment"><input id="shop-gallery-input" class="visually-hidden-file" type="file" accept="image/*"><input id="shop-edit-image" type="hidden"><div id="shop-image-preview-wrap" class="shop-image-preview-wrap hidden"><img id="shop-image-preview" alt="معاينة صورة الغرض"><button id="shop-image-clear" type="button" class="small-btn danger">إزالة الصورة</button></div></div><div class="actions"><button id="shop-save" class="primary" type="button">حفظ الغرض</button><button id="shop-cancel" class="secondary" type="button">تفريغ الحقول</button></div><p id="shop-admin-status" class="hint"></p></div><div id="admin-shop-list" class="admin-managed-list"></div></section>
+  <section class="admin-block"><h3>صورة مخطط الفعالية</h3><p class="muted">ارفع صورة واضحة للمكان. يفضّل أن تكون أفقية.</p><input id="map-upload" type="file" accept="image/png,image/jpeg,image/webp"><button id="upload-map" class="secondary full">رفع صورة المخطط</button><p id="map-status" class="hint"></p></section>
+  <section class="admin-block"><div class="admin-section-title"><h3>إدارة البوثات</h3><span class="hint">حتى ٥ بوثات</span></div><div id="admin-booths"></div></section>
+  <section id="booth-editor" class="admin-block hidden"><h3 id="editor-title">إضافة بوث</h3><p class="hint">حرّك العلامة مباشرة على معاينة المخطط لتحديد مكان البوث قبل الحفظ.</p>
+   <div class="booth-live-preview" id="booth-live-preview" aria-label="معاينة تفاعلية لموقع البوث">
+    <img id="booth-preview-image" src="assets/floor-plan-placeholder.svg" alt="معاينة مخطط الفعالية">
+    <div class="booth-preview-marker" id="booth-preview-marker">●</div>
+    <span class="preview-hint">اسحب العلامة إلى الموقع المطلوب</span>
+   </div>
+   <input id="edit-id" type="hidden"><label>اسم البوث<input id="edit-name" maxlength="80" placeholder="مثال: مقاومة المضادات الحيوية"></label>
+   <label>التصنيف<input id="edit-category" maxlength="50" placeholder="مثال: توعية دوائية"></label>
+   <label>نبذة عن البوث<textarea id="edit-description" rows="3" maxlength="500" placeholder="اكتب نبذة مختصرة وواضحة..."></textarea></label>
+   <label>وصف الموقع<input id="edit-location" maxlength="100" placeholder="مثال: بجانب المدخل الرئيسي"></label>
+   <div class="coords"><span>الموقع الأفقي: <b id="x-value">50%</b></span><span>الموقع العمودي: <b id="y-value">50%</b></span></div>
+   <input id="edit-x" type="range" min="1" max="99" value="50"><input id="edit-y" type="range" min="1" max="99" value="50">
+   <div class="actions"><button id="save-booth" class="primary">حفظ البوث</button><button id="cancel-edit" class="secondary">إلغاء</button></div><p id="save-status" class="hint"></p>
+  </section>
+ </div>
+ </div>
+</div>
+
+<div id="booth-qr-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="booth-qr-title">
+ <div class="modal-panel qr-panel">
+  <div class="modal-head"><div><span class="eyebrow">رمز زيارة البوث</span><h2 id="booth-qr-title">QR Code</h2></div><button id="booth-qr-close" class="close" type="button" aria-label="إغلاق">×</button></div>
+  <p id="booth-qr-caption" class="muted">امسح الرمز لفتح صفحة تسجيل زيارة البوث.</p>
+  <div class="qr-image-wrap"><img id="booth-qr-image" alt="رمز QR للبوث"></div>
+  <a id="booth-qr-open" class="primary qr-open" target="_blank" rel="noopener noreferrer">فتح رابط الزيارة</a>
+  <p class="hint">اطبع هذا الرمز وضعه عند البوث. عند مسحه، يُسجّل الزائر اسمه وتُسجّل زيارته للبوث.</p>
+ </div>
+</div>
+<div id="booth-checkin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="booth-checkin-title">
+ <div class="modal-panel qr-panel">
+  <div class="modal-head"><div><span class="eyebrow">تسجيل زيارة</span><h2 id="booth-checkin-title">أهلًا بك!</h2></div><button id="booth-checkin-close" class="close" type="button" aria-label="إغلاق">×</button></div>
+  <div class="checkin-mark">✓</div>
+  <h3 id="booth-checkin-name" class="checkin-booth-name"></h3>
+  <p class="muted">استخدم اسم المشاركة الذي اعتمدته عند دخول الموقع.</p>
+  <label for="booth-checkin-player">اسمك في الفعالية<input id="booth-checkin-player" maxlength="80" autocomplete="name" placeholder="اسم المشارك المعتمد" readonly></label>
+  <button id="booth-checkin-submit" class="primary full" type="button">تأكيد زيارتي</button>
+  <p id="booth-checkin-status" class="hint" role="status"></p>
+ </div>
+</div>
+
+<div id="shop-receipt-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="shop-receipt-title"><div class="modal-panel shop-receipt-panel"><div class="modal-head"><div><span class="eyebrow">إيصال متجر الجوائز</span><h2 id="shop-receipt-title">فاتورة الشراء</h2></div><button id="shop-receipt-close" class="close" type="button" aria-label="إغلاق">×</button></div><div id="shop-receipt-paper" class="shop-receipt-paper"><div class="receipt-success-mark">✓</div><h3>تم تأكيد عملية الشراء</h3><p class="receipt-subtitle">احتفظ بهذه الفاتورة عند استلام جائزتك</p><div class="receipt-number-row"><span>رقم الفاتورة</span><b id="receipt-number">—</b></div><div class="receipt-divider"></div><div class="receipt-line"><span>اسم المشارك</span><b id="receipt-player">—</b></div><div class="receipt-line"><span>الغرض</span><b id="receipt-item">—</b></div><div class="receipt-line"><span>النقاط المخصومة</span><b id="receipt-points">—</b></div><div class="receipt-line"><span>الرصيد المتبقي</span><b id="receipt-balance">—</b></div><div class="receipt-line"><span>تاريخ الشراء</span><b id="receipt-date">—</b></div><div class="receipt-divider"></div><p class="receipt-footer">شكرًا لمشاركتك — متجر جوائز الفعالية</p></div><div class="actions receipt-actions"><button id="shop-receipt-print" class="primary" type="button">طباعة / حفظ PDF</button><button id="shop-receipt-done" class="secondary" type="button">إغلاق</button></div></div></div>
+<div id="identity-modal" class="identity-modal hidden" role="dialog" aria-modal="true" aria-labelledby="identity-title">
+ <div class="identity-card"><span class="identity-mark">✦</span><span class="identity-kicker">ملفك في الفعالية</span><h2 id="identity-title">مرحبًا بك في رحلتك</h2>
+ <p>قبل أن تبدأ، اختر اسمًا للمشاركة. يجب أن يكون الاسم فريدًا وغير مستخدم من مشارك آخر.</p>
+ <label for="identity-name">اسم المشاركة</label><input id="identity-name" type="text" maxlength="80" autocomplete="nickname" placeholder="اكتب الاسم الذي تفضله">
+ <small>يُحفظ الاسم على هذا الجهاز لتسهيل مشاركتك في جميع الأنشطة.</small><button id="identity-save" class="primary full" type="button">اعتماد الاسم والمتابعة</button><p id="identity-status" class="identity-status" role="status"></p></div>
+</div><div id="toast" class="toast" role="status"></div>
+<script>
+(()=>{
+ const screen=document.getElementById('intro-screen');
+ const welcome=document.getElementById('intro-welcome');
+ const credit=document.getElementById('intro-credit');
+ const skip=document.getElementById('intro-skip');
+ if(!screen||!welcome||!credit)return;
+ let finished=false;
+ const finish=()=>{if(finished)return;finished=true;screen.classList.add('intro-exit');document.body.classList.remove('intro-lock');window.setTimeout(()=>screen.remove(),750)};
+ const showCredit=()=>{if(finished)return;welcome.classList.add('intro-hide');credit.classList.add('intro-show');credit.setAttribute('aria-hidden','false');window.setTimeout(finish,1450)};
+ const first=window.setTimeout(showCredit,2700);
+ const skipNow=()=>{window.clearTimeout(first);finish()};
+ skip?.addEventListener('click',skipNow);
+ if(window.matchMedia('(prefers-reduced-motion: reduce)').matches)window.setTimeout(finish,1200);
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="config.js"></script><script src="app.js"></script>
+</body></html>
